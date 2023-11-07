@@ -36,7 +36,7 @@ def create_dataloader(documents: List[List[str]],
     """
     This function creates a dataloader for the dataset.
     """
-    processed_data, vocab = pre_processing(documents)
+    processed_data, vocab = pre_processing(documents, model_type = 'ctm')
 
     dataset = CTMDataset(processed_data)
     train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)

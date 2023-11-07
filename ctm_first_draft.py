@@ -88,6 +88,7 @@ if __name__ == "__main__":
     num_topics = target_names.shape[0]
     batch_size = 32
     rho = 0.1
+    lr = 0.001
 
     # Create dataloader
     train_loader, vocab_size = create_dataloader(documents, batch_size)
@@ -99,7 +100,7 @@ if __name__ == "__main__":
     model = CTM(num_topics, vocab_size, rho)
 
     # Hyper parameters for the model
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr = lr)
     criterion = nn.CrossEntropyLoss()
 
     # Model training
