@@ -4,7 +4,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader 
 from ctm_dataloader import create_dataloader
-
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 #Freddy - Going to ignore hyper parameters for now 
 #         Doing a strict implemenation of the original paper
@@ -34,6 +35,11 @@ class CTM():
 
         # beta: topic-word distribution
         self.beta = torch.rand(num_topics, vocab_size)
+        # print(self.beta)
+        # exit()
+        
+        if(0 in self.beta):
+            print("THERE IS A ZERO IN BETA 1")
 
         # phi: topic-topic distribution
         # self.phi = nn.Parameter(torch.randn(num_topics, num_topics))
@@ -89,28 +95,54 @@ class CTM():
         # print("doc", doc)
         N = sum(doc) #this needs to be the number of words in doc
 
+        if(0 in self.beta):
+            print("BOUND THERE IS A ZERO IN BETA")
+            exit()
+
         bound  = 0.0
 
  
         bound += .5 * torch.log(torch.det(self.sigma_inv)).item()
+        
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan1")
+            exit()
 
         bound -= .5 * torch.trace(
             torch.matmul(
                 torch.diag(nusqrd), self.sigma_inv)).item()
         
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan2")
+            exit()
+        
         bound -= .5 * torch.t(self.lamda - self.mu
                               ).matmul(self.sigma_inv
                                          ).matmul(self.lamda - self.mu).item()
-        
+
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan3")  
+            exit()      
 
         bound += .5 * (torch.sum(torch.log(nusqrd)) + self.num_topics).item()
+
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan4")
+            exit()
 
         # print("first half Computed bound")
         expect = torch.sum(torch.exp(lamda + (.5*nusqrd))).item()
 
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan5")
+            exit()
+
         bound += (N * (-1/self.zeta * expect + 1 - torch.log(self.zeta))).item()
         # print("Bound is done")
 
+        if(torch.tensor(bound).isnan()):
+            print("Bound is Nan6")
+            exit()
         #DEFINITELY FEEL LIKE THE STUFF BELOW MIGHT BE WRONG
         # for (n,c) in doc:
             # bound += torch.sum(c*self.phi[n] * (lamda + torch.log(torch.t(self.beta)[n])
@@ -123,13 +155,28 @@ class CTM():
 
             for i in range(self.num_topics):
 
+                if((c*phi[n,i]).isnan()):
+                    print("first isNan")
+                    print("phi", phi)
+                    print("element",phi[n,i])
+
                 if ((lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).isnan():
-                    print("isNan")
+                    print("second isNan")
                     print(lamda[i])
                     print(self.beta[i,n])
                     print(phi[n,i])
+                    exit()
 
                 bound += (c*phi[n,i] * (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).item()
+
+                if(torch.tensor(bound).isnan()):
+                    print("Bound is Nan")
+                    print("first: ", c*phi[n,i])
+                    print("second: ", (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i])))
+                    print("beta: ", self.beta[i,n])
+                    print("beta log: ", torch.log(self.beta[i,n]) )
+                    print("phi log: ", torch.log(phi[n,i]))
+                    exit()
 
         return bound
 
@@ -138,28 +185,33 @@ class CTM():
 
     #default TOL values come from original CTM paper
     #MAX_ITERATIONS is just a value I set
-    def train(self, corpus, TOL_E=10**-3, TOL_EM=10**-3, MAX_ITERATIONS=10000):
+    def train(self, corpus, TOL_E=10**-3, TOL_EM=10**-5, MAX_ITERATIONS=10000, stop=-1):
         # Two phases, e and then m, where we try to maximize bound on log prob
         # Repeat until difference is less than TOL_EM
         # e phase is coordinate ascent which runs till delta less than TOL_E
         self.corpus = corpus
-
+        # if(stop==1):
+        #     print(self.phi)
+        #     exit()
         # self.corp_lamda = torch.zeros(len(corpus)) might need this to get topic graph
+
         for i in range(MAX_ITERATIONS):
             # if(i%20 == 0):
             print("training loop ",i)
-
             old_bound = self.corpus_bound(corpus)
-            # print(old_bound)
+            print(old_bound)
             self.e_phase()
             self.m_phase()
+
 
             delta = (self.corpus_bound(self.corpus) - old_bound)/old_bound
 
             print("delta",delta)
             print("non-normalized delta", (delta*old_bound))
 
-            if delta < TOL_EM:
+            #max just to make sure delta is positive, could use abs
+            if max(-delta,delta) < TOL_EM:
+                # print(self.beta)
                 break
 
     def e_phase(self):
@@ -174,8 +226,8 @@ class CTM():
             #There are 4 parameters to maximize 
             self.zeta = self.max_zeta(self.lamda, self.nusqrd) #analytical
 
-            self.max_phi(self.lamda, self.beta, doc) #analytical 
-
+            self.max_phi(self.beta, doc) #analytical 
+            # print(self.phi)
             self.lamda = self.max_lamda(self.lamda, self.phi, doc) #conjugate gradient descent
 
             self.nusqrd = self.max_nusqrd(self.nusqrd, doc) #newtons method
@@ -185,8 +237,17 @@ class CTM():
 
     def m_phase(self):#MLE
 
-        beta_norm  = torch.sum(self.suf_beta)
-        self.beta  = self.suf_beta / beta_norm
+        print("M PHASE")
+    
+        if(0 in self.suf_beta):
+            print("MPHASE ZERO")
+            print(self.suf_beta)
+
+
+        for i in range(num_topics):
+            beta_norm  = torch.sum(self.suf_beta[i])
+            self.beta[i]  = self.suf_beta[i] / beta_norm
+        
 
         self.mu    = self.suf_mu/self.suf_num_docs
         self.sigma = self.suf_sigma + torch.matmul(self.mu, torch.t(self.mu))
@@ -208,7 +269,7 @@ class CTM():
         #update sufficient statistics
         self.suf_mu += self.lamda
         for n,c in enumerate(doc):
-            for i in range(self.num_topics):
+            for i in range(self.num_topics):                   
                 self.suf_beta[i,n] += c * self.phi[n,i]
         
         self.suf_sigma += torch.diag(self.nusqrd) + torch.matmul(self.lamda, torch.t(self.lamda))
@@ -217,15 +278,29 @@ class CTM():
         return torch.sum(torch.exp(torch.add(lamda,nusqrd,alpha=1/2)))
         
 
-    def max_phi(self, phi, beta, doc):
+    def max_phi(self, beta, doc):
 
         for n,c in enumerate(doc):
             phi_norm = 0
             for i in range(self.num_topics):
                 phi_norm = sum([torch.exp(self.lamda[i]) * beta[i,n]])
+                if(phi_norm == 0):
+                    print("zero! ", i)
+                    print(self.lamda[i])
+                    print(self.lamda)
+                    print(beta[i,n])
+                    print(beta)
+                    exit()
+
+
             
             for i in range(self.num_topics):
                 self.phi[n,i] = torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm
+                if (torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm).isnan():
+                    print("NAN!")
+                    print(self.lamda[i])
+                    print(self.beta[i,n])
+
 
     
     #The two below aren't quite how the paper handled it
@@ -281,17 +356,18 @@ if __name__ == "__main__":
     print("Shape of dataset:", news_data.shape)
 
     news_data = news_data.drop(columns=["Unnamed: 0"])
+    num_documents = 32
 
-    documents = news_data.head(32).content
-    target_labels = news_data.head(32).target
-    target_names = news_data.head(32).target_names
+    documents = news_data.head(num_documents).content
+    target_labels = news_data.head(num_documents).target
+    target_names = news_data.head(num_documents).target_names
 
     # Hyperparameters
     num_epochs = 10
     num_topics = 10#target_names.shape[0]
     # print("topics:", num_topics)
     # exit()
-    batch_size = 32
+    batch_size = num_documents
     rho = 0.1
     lr = 0.001
 
@@ -314,7 +390,13 @@ if __name__ == "__main__":
     
     for i, batch in enumerate(train_loader):
         print("Training batch: ", i)
-        model.train(batch)
+        model.train(batch,stop=i)
+
+    corrCoef = torch.corrcoef(model.beta)
+    sns.heatmap(corrCoef, annot=True)
+    plt.show()
+
+
 
     # Hyper parameters for the model
     # optimizer = optim.Adam(model.parameters(), lr = lr)
