@@ -218,11 +218,12 @@ class CTM():
         #this phase maximizes variational parameters and then computes sufficient statistics 
         #   for MLE in the next phase
 
+        print("Computing E Phase")
         self.clear_suf_stats()
 
         for i,doc in enumerate(self.corpus):
             if(i%4 == 0):
-                print("doc# ", i)
+                print("Starting doc: ", i)
             #There are 4 parameters to maximize 
             self.zeta = self.max_zeta(self.lamda, self.nusqrd) #analytical
 
@@ -244,7 +245,7 @@ class CTM():
             print(self.suf_beta)
 
 
-        for i in range(num_topics):
+        for i in range(self.num_topics):
             beta_norm  = torch.sum(self.suf_beta[i])
             self.beta[i]  = self.suf_beta[i] / beta_norm
         
@@ -257,10 +258,10 @@ class CTM():
     def clear_suf_stats(self):
         self.suf_num_docs   = 0
         # self.rho = rho
-        self.suf_beta       = torch.zeros(num_topics,vocab_size)
+        self.suf_beta       = torch.zeros(self.num_topics,self.vocab_size)
         # self.suf_phi = torch.zeros(num_topics,num_topics)
-        self.suf_mu         = torch.zeros(num_topics)
-        self.suf_sigma      = torch.zeros(num_topics, num_topics)
+        self.suf_mu         = torch.zeros(self.num_topics)
+        self.suf_sigma      = torch.zeros(self.num_topics, self.num_topics)
 
 
     def update_suf(self, doc):
@@ -347,43 +348,27 @@ class CTM():
         return nusqrd
 
 
+def runModel(data, num_doc, num_topics):
 
-
-if __name__ == "__main__":
-    # Load the dataset
-
-    news_data = pd.read_csv("newsgroups_data.csv")
-    print("Shape of dataset:", news_data.shape)
-
-    news_data = news_data.drop(columns=["Unnamed: 0"])
-    num_documents = 32
-
-    documents = news_data.head(num_documents).content
-    target_labels = news_data.head(num_documents).target
-    target_names = news_data.head(num_documents).target_names
+    print("Num topics", num_topics)
+    documents = data.head(num_doc).content
+    target_labels = data.head(num_doc).target
+    target_names = data.head(num_doc).target_names
 
     # Hyperparameters
     num_epochs = 10
-    num_topics = 10#target_names.shape[0]
     # print("topics:", num_topics)
     # exit()
-    batch_size = num_documents
+    batch_size = num_doc
     rho = 0.1
     lr = 0.001
 
     # Create dataloader
     train_loader, vocab_size = create_dataloader(documents, batch_size)
-    # print(train_loader[0])
 
-    # print(train_loader)
-    # print(train_features)
-    # print(train_labels)
 
     torch.set_printoptions(threshold=20000) #lets us print larger tensors to terminal for debugging
 
-    for idx, data in enumerate(train_loader):
-        print("Shape of data:", data.shape)
-        break
 
     model = CTM(num_topics, vocab_size)
     
@@ -394,6 +379,25 @@ if __name__ == "__main__":
 
     corrCoef = torch.corrcoef(model.beta)
     sns.heatmap(corrCoef, annot=True)
+    plt.show(block=False)
+
+
+
+if __name__ == "__main__":
+    # Load the dataset
+
+    news_data = pd.read_csv("newsgroups_data.csv")
+    print("Shape of dataset:", news_data.shape)
+
+    news_data = news_data.drop(columns=["Unnamed: 0"])
+
+
+    # runModel(news_data, 10, 10)
+    # runModel(news_data, 20, 10)
+    # runModel(news_data, 20, 20)
+    
+    runModel(news_data, 64, 20)
+
     plt.show()
 
 
