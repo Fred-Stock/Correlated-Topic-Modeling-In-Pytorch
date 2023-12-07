@@ -15,74 +15,59 @@ class CTM():
 
         # num_topics: number of topics in the model
         # vocab_size: size of the vocabulary
-        # rho: hyperparameter for the model
         self.num_topics = num_topics
         self.vocab_size = vocab_size
         self.corpus     = None
+
+        #Sufficient Statistics, used in m-phase of algorithm
         self.suf_num_docs   = 0
-        # self.rho = rho
         self.suf_beta  = torch.zeros(num_topics,vocab_size)
-        # self.suf_phi = torch.zeros(num_topics,num_topics)
         self.suf_mu    = torch.zeros(num_topics)
         self.suf_sigma = torch.zeros(num_topics, num_topics)
 
 
+        #Model parameters
+
+        #k-dimensional mean 
         self.mu = torch.zeros(self.num_topics)
+        #covariance matrix of the model
         self.sigma = torch.diagflat(torch.tensor([1.0] * (self.num_topics)))
-        print(self.sigma)
+        #inverse of sigma - helpful for calculations later
         self.sigma_inv = torch.inverse(self.sigma)
-
-
         # beta: topic-word distribution
         self.beta = torch.rand(num_topics, vocab_size)
-        # print(self.beta)
-        # exit()
-        
+
+        #Debug check
         if(0 in self.beta):
             print("THERE IS A ZERO IN BETA 1")
 
-        # phi: topic-topic distribution
         # self.phi = nn.Parameter(torch.randn(num_topics, num_topics))
 
+        #variantional parameters
+
+        #lamda and nusqrd are two indpendend univariate gaussians
         self.lamda = torch.zeros(self.num_topics)
         self.nusqrd = torch.ones(self.num_topics)
+
+        # phi: topic-topic distribution
+        #describes the variational distributions of topics 
         self.phi = 1/float(self.num_topics) * torch.ones(self.vocab_size, self.num_topics)
+        
+        #Zeta: variational parameter - appears when we upper bound the
+        #log probability using a taylor expansion equation (7)
         self.zeta = self.max_zeta(self.lamda, self.nusqrd)
 
         self.corp_lamda = None #init when we get the corpus
 
-        # mu: topic bias
-        # self.mu = nn.Parameter(torch.randn(num_topics))
 
-    # def forward(self, x):
-    #     # x is a batch of documents represented as a bag-of-words
-    #     # x has shape (batch_size, vocab_size)
-    #     batch_size = x.size(0)
-    #     print(f"Batch size: {batch_size}")
 
-    #     # log_prob: log probability of each document belonging to each topic
-    #     log_prob = torch.zeros(batch_size, self.num_topics)
-    #     print(f"Log probability {log_prob} and shape: {log_prob.shape}")
-    #     for k in range(self.num_topics):
-    #         print(f"Topic {k}")
-
-    #         # compute the log probability of each document belonging to topic k
-    #         log_prob[:, k] = torch.sum(x * self.beta[k], dim=1) + self.mu[k]
-
-    #         for j in range(self.num_topics):
-    #             if j != k:
-    #                 # compute contribution of topic j to the log probability
-    #                 # of each document belonging to topic k
-    #                 log_prob[:, k] += (
-    #                     self.phi[k, j] * torch.sum(x * self.beta[j], dim=1)
-    #                 )
-
-    #     return log_prob
-
+    #Given a document this computes its log probability
+    #This is equation (7) in the original CTM paper
     def log_bound(self, doc, nusqrd=None, lamda=None, phi=None):
 
-        # print("in bound")
-        #lamda and nusqrd as parameters enable use with an optimizer
+        #we take lamda and nusqrd as optional parameters
+        #this is so we can use this equation with an opmtimizer
+        #like adam if we want to later
         if(lamda == None):
             lamda  = self.lamda
         
@@ -92,9 +77,11 @@ class CTM():
         if(phi == None):
             phi = self.phi
 
-        # print("doc", doc)
-        N = sum(doc) #this needs to be the number of words in doc
+        
+        N = sum(doc) #number of words in doc
 
+        #this is a debugging check 
+        #If there is a zero we will get nan for the log bound later
         if(0 in self.beta):
             print("BOUND THERE IS A ZERO IN BETA")
             exit()
@@ -143,18 +130,12 @@ class CTM():
         if(torch.tensor(bound).isnan()):
             print("Bound is Nan6")
             exit()
-        #DEFINITELY FEEL LIKE THE STUFF BELOW MIGHT BE WRONG
-        # for (n,c) in doc:
-            # bound += torch.sum(c*self.phi[n] * (lamda + torch.log(torch.t(self.beta)[n])
-                                                #  - torch.log(self.phi[n]))) 
-        
-        # print(lamda)
+      
         for n,c in enumerate(doc):
-            # if(n%500 == 0):
-                # print("doc enumeration")
 
             for i in range(self.num_topics):
 
+                #next two if statements are for debugging
                 if((c*phi[n,i]).isnan()):
                     print("first isNan")
                     print("phi", phi)
@@ -169,6 +150,7 @@ class CTM():
 
                 bound += (c*phi[n,i] * (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).item()
 
+                #another debuggin check
                 if(torch.tensor(bound).isnan()):
                     print("Bound is Nan")
                     print("first: ", c*phi[n,i])
@@ -180,9 +162,12 @@ class CTM():
 
         return bound
 
+    #this computes the log bound for an entire corpus 
     def corpus_bound(self, corpus):
         return sum([self.log_bound(doc) for doc in corpus])
 
+    #Training loop, runs until the log probability changes by at most TOL_EM
+    #       OR we hit max iterations
     #default TOL values come from original CTM paper
     #MAX_ITERATIONS is just a value I set
     def train(self, corpus, TOL_E=10**-3, TOL_EM=10**-5, MAX_ITERATIONS=10000, stop=-1):
@@ -190,13 +175,8 @@ class CTM():
         # Repeat until difference is less than TOL_EM
         # e phase is coordinate ascent which runs till delta less than TOL_E
         self.corpus = corpus
-        # if(stop==1):
-        #     print(self.phi)
-        #     exit()
-        # self.corp_lamda = torch.zeros(len(corpus)) might need this to get topic graph
-
+        
         for i in range(MAX_ITERATIONS):
-            # if(i%20 == 0):
             print("training loop ",i)
             old_bound = self.corpus_bound(corpus)
             print(old_bound)
@@ -214,9 +194,10 @@ class CTM():
                 # print(self.beta)
                 break
 
+    #This implements the expectation (or E) step from the original paper
+    #We maximize the log probability bound w.r.t. the variational parameters
+    #It then updates the sufficient statistics which is used in the next phase
     def e_phase(self):
-        #this phase maximizes variational parameters and then computes sufficient statistics 
-        #   for MLE in the next phase
 
         print("Computing E Phase")
         self.clear_suf_stats()
@@ -224,22 +205,26 @@ class CTM():
         for i,doc in enumerate(self.corpus):
             if(i%4 == 0):
                 print("Starting doc: ", i)
+
             #There are 4 parameters to maximize 
-            self.zeta = self.max_zeta(self.lamda, self.nusqrd) #analytical
+            self.zeta = self.max_zeta(self.lamda, self.nusqrd) 
 
-            self.max_phi(self.beta, doc) #analytical 
-            # print(self.phi)
-            self.lamda = self.max_lamda(self.lamda, self.phi, doc) #conjugate gradient descent
+            self.max_phi(self.beta, doc) 
+            
+            self.lamda = self.max_lamda(self.lamda, self.phi, doc)
 
-            self.nusqrd = self.max_nusqrd(self.nusqrd, doc) #newtons method
+            self.nusqrd = self.max_nusqrd(self.nusqrd, doc) 
 
-            #have to update sufficient statistics so we can run the M step
+            #update sufficient statistics for M step
             self.update_suf(doc)
 
-    def m_phase(self):#MLE
+    #MLE of the topics and multivariate gaussian
+    #Called the M phase in original paper
+    def m_phase(self):
 
         print("M PHASE")
     
+        #debug statement if zero we will get a nan log bound
         if(0 in self.suf_beta):
             print("MPHASE ZERO")
             print(self.suf_beta)
@@ -255,19 +240,20 @@ class CTM():
         self.sigma_inv = torch.inverse(self.sigma)
 
 
+    #Resets sufficient statistics 
+    #Used at the start of the e phase
     def clear_suf_stats(self):
         self.suf_num_docs   = 0
-        # self.rho = rho
+
         self.suf_beta       = torch.zeros(self.num_topics,self.vocab_size)
-        # self.suf_phi = torch.zeros(num_topics,num_topics)
         self.suf_mu         = torch.zeros(self.num_topics)
         self.suf_sigma      = torch.zeros(self.num_topics, self.num_topics)
 
 
+    #updates sufficient statistics, called during each iteration of e phase
     def update_suf(self, doc):
 
         self.suf_num_docs += 1
-        #update sufficient statistics
         self.suf_mu += self.lamda
         for n,c in enumerate(doc):
             for i in range(self.num_topics):                   
@@ -275,47 +261,37 @@ class CTM():
         
         self.suf_sigma += torch.diag(self.nusqrd) + torch.matmul(self.lamda, torch.t(self.lamda))
 
+    #Maximize log bound wrt to zeta, this can be done with a closed form equation
+    #Equation (14) of original paper
     def max_zeta(self, lamda, nusqrd):
         return torch.sum(torch.exp(torch.add(lamda,nusqrd,alpha=1/2)))
         
 
+    #maximize log bound wrt to phi, again there is a closed equation
+    #Comes from (15) of doc though honestly I'm not 100% on 
+    #           the derivation of this, I referenced gensim for this
     def max_phi(self, beta, doc):
 
         for n,c in enumerate(doc):
             phi_norm = 0
             for i in range(self.num_topics):
                 phi_norm = sum([torch.exp(self.lamda[i]) * beta[i,n]])
-                if(phi_norm == 0):
-                    print("zero! ", i)
-                    print(self.lamda[i])
-                    print(self.lamda)
-                    print(beta[i,n])
-                    print(beta)
-                    exit()
-
-
-            
+       
             for i in range(self.num_topics):
                 self.phi[n,i] = torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm
-                if (torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm).isnan():
-                    print("NAN!")
-                    print(self.lamda[i])
-                    print(self.beta[i,n])
 
 
     
-    #The two below aren't quite how the paper handled it
-    #But this seemed like the path of least resistance
-    #Hopefully it works
+
+    #This optmizes lamda, to maximize the log bound
+    #sadly this can not be done analytically like that last 2
+    #So I use adam to optimize. This is not how the original paper said
+    #They used conjugate gradient descent, though I dont think that is an issue
     def max_lamda(self, lamda, phi, doc):
         
         def target(doc,lamda,phi):
             return self.log_bound(doc, lamda=lamda, phi=phi)
 
-        # def deriv(lamda):
-
-        # print(phi.shape)
-            
 
         opt = torch.optim.Adam([doc,lamda],maximize=True)#,differentiable=True)
         
@@ -328,6 +304,9 @@ class CTM():
 
         return lamda
     
+    #This optimizes nusqrd with respect to the log bound
+    #This again like lamda is not how the paper did it, they used newtons method
+    #I don't think thats an issue but its not hard to implement if we want to
     def max_nusqrd(self, nusqrd, doc):
         
         def target(nusqrd, doc):
@@ -348,6 +327,10 @@ class CTM():
         return nusqrd
 
 
+#This creates a ctm and runs the training loop on data
+#   Data - is a pandas dataframe of our documents
+#num_doc is the number of documents in corpus and 
+#num_topic is the number of topics to find
 def runModel(data, num_doc, num_topics):
 
     print("Num topics", num_topics)
@@ -355,10 +338,8 @@ def runModel(data, num_doc, num_topics):
     target_labels = data.head(num_doc).target
     target_names = data.head(num_doc).target_names
 
-    # Hyperparameters
     num_epochs = 10
-    # print("topics:", num_topics)
-    # exit()
+
     batch_size = num_doc
     rho = 0.1
     lr = 0.001
