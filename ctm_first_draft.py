@@ -87,50 +87,19 @@ class CTM():
             exit()
 
         bound  = 0.0
-
- 
         bound += .5 * torch.log(torch.det(self.sigma_inv)).item()
-        
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan1")
-            exit()
+        bound -= .5 * torch.trace(torch.matmul(
+            torch.diag(nusqrd), self.sigma_inv)).item()
 
-        bound -= .5 * torch.trace(
-            torch.matmul(
-                torch.diag(nusqrd), self.sigma_inv)).item()
-        
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan2")
-            exit()
-        
         bound -= .5 * torch.t(self.lamda - self.mu
                               ).matmul(self.sigma_inv
-                                         ).matmul(self.lamda - self.mu).item()
-
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan3")  
-            exit()      
+                                         ).matmul(self.lamda - self.mu).item()     
 
         bound += .5 * (torch.sum(torch.log(nusqrd)) + self.num_topics).item()
 
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan4")
-            exit()
-
-        # print("first half Computed bound")
         expect = torch.sum(torch.exp(lamda + (.5*nusqrd))).item()
-
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan5")
-            exit()
-
         bound += (N * (-1/self.zeta * expect + 1 - torch.log(self.zeta))).item()
-        # print("Bound is done")
 
-        if(torch.tensor(bound).isnan()):
-            print("Bound is Nan6")
-            exit()
-      
         for n,c in enumerate(doc):
 
             for i in range(self.num_topics):
@@ -150,7 +119,7 @@ class CTM():
 
                 bound += (c*phi[n,i] * (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).item()
 
-                #another debuggin check
+                #another debugging check
                 if(torch.tensor(bound).isnan()):
                     print("Bound is Nan")
                     print("first: ", c*phi[n,i])
