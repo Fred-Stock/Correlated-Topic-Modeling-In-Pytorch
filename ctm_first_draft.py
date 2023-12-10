@@ -6,9 +6,13 @@ from torch.utils.data import DataLoader
 from ctm_dataloader import create_dataloader
 import seaborn as sns
 import matplotlib.pyplot as plt
+import math
 
-#Freddy - Going to ignore hyper parameters for now 
-#         Doing a strict implemenation of the original paper
+from torch.optim import Adam
+
+#An implementation of correlateted topic modeling from 
+#https://proceedings.neurips.cc/paper_files/paper/2005/file/9e82757e9a1c12cb710ad680db11f6f1-Paper.pdf
+
 class CTM():
     def __init__(self, num_topics, vocab_size):#, rho):
         super(CTM, self).__init__()
@@ -87,53 +91,58 @@ class CTM():
             exit()
 
         bound  = 0.0
-        bound += .5 * torch.log(torch.det(self.sigma_inv)).item()
-        bound -= .5 * torch.trace(torch.matmul(
-            torch.diag(nusqrd), self.sigma_inv)).item()
 
-        bound -= .5 * torch.t(self.lamda - self.mu
+
+        #equation 8
+        bound = bound + .5 * torch.log(torch.slogdet(self.sigma_inv).logabsdet)
+        if (torch.log(torch.slogdet(self.sigma_inv).logabsdet)).isnan():
+            print("1")
+            print(torch.slogdet(self.sigma_inv))
+            print(self.sigma_inv)
+            print(torch.matmul(self.sigma,self.sigma_inv))
+
+
+        bound = bound - .5 * torch.trace(torch.matmul(
+            torch.diag(nusqrd), self.sigma_inv))
+        if (torch.trace(torch.matmul(
+            torch.diag(nusqrd), self.sigma_inv))).isnan():
+            print("2")
+
+
+        bound = bound - .5 * torch.t(self.lamda - self.mu
                               ).matmul(self.sigma_inv
-                                         ).matmul(self.lamda - self.mu).item()     
+                                         ).matmul(self.lamda - self.mu) 
 
-        bound += .5 * (torch.sum(torch.log(nusqrd)) + self.num_topics).item()
+        if (self.lamda - self.mu
+                              ).reshape(1,-1).matmul(self.sigma_inv
+                                         ).matmul(self.lamda - self.mu).isnan():
+            print("3")  
+        bound = bound - .5 * (math.log(2*math.pi) + self.num_topics)
 
-        expect = torch.sum(torch.exp(lamda + (.5*nusqrd))).item()
-        bound += (N * (-1/self.zeta * expect + 1 - torch.log(self.zeta))).item()
 
+        #equation 10
+        expect = torch.sum(torch.exp(lamda + (.5*nusqrd)))
+        bound = bound + ((-1/self.zeta * expect + 1 - torch.log(self.zeta)))
+        for n,_ in enumerate(doc):
+            bound = bound + torch.sum(lamda*phi[n])
+
+        #equation 11 and 12
         for n,c in enumerate(doc):
-
             for i in range(self.num_topics):
+                bound = bound + (phi[n,i] * torch.log(self.beta[i,n]))
+                bound = bound - phi[n,i]*torch.log(phi[n,i])
 
-                #next two if statements are for debugging
-                if((c*phi[n,i]).isnan()):
-                    print("first isNan")
-                    print("phi", phi)
-                    print("element",phi[n,i])
 
-                if ((lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).isnan():
-                    print("second isNan")
-                    print(lamda[i])
-                    print(self.beta[i,n])
-                    print(phi[n,i])
-                    exit()
+        bound = bound + torch.sum(nusqrd + math.log(2*math.pi) + 1)
 
-                bound += (c*phi[n,i] * (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i]))).item()
-
-                #another debugging check
-                if(torch.tensor(bound).isnan()):
-                    print("Bound is Nan")
-                    print("first: ", c*phi[n,i])
-                    print("second: ", (lamda[i] + torch.log(self.beta[i,n]) - torch.log(phi[n,i])))
-                    print("beta: ", self.beta[i,n])
-                    print("beta log: ", torch.log(self.beta[i,n]) )
-                    print("phi log: ", torch.log(phi[n,i]))
-                    exit()
 
         return bound
 
     #this computes the log bound for an entire corpus 
     def corpus_bound(self, corpus):
-        return sum([self.log_bound(doc) for doc in corpus])
+        res = sum([self.log_bound(doc) for doc in corpus])
+        print(res)
+        return res
 
     #Training loop, runs until the log probability changes by at most TOL_EM
     #       OR we hit max iterations
@@ -179,8 +188,8 @@ class CTM():
             self.zeta = self.max_zeta(self.lamda, self.nusqrd) 
 
             self.max_phi(self.beta, doc) 
-            
-            self.lamda = self.max_lamda(self.lamda, self.phi, doc)
+
+            self.lamda = self.max_lamda(self.lamda, doc)
 
             self.nusqrd = self.max_nusqrd(self.nusqrd, doc) 
 
@@ -192,20 +201,31 @@ class CTM():
     def m_phase(self):
 
         print("M PHASE")
-    
-        #debug statement if zero we will get a nan log bound
-        if(0 in self.suf_beta):
-            print("MPHASE ZERO")
-            print(self.suf_beta)
 
 
+        # print(self.suf_beta)
         for i in range(self.num_topics):
             beta_norm  = torch.sum(self.suf_beta[i])
             self.beta[i]  = self.suf_beta[i] / beta_norm
-        
 
-        self.mu    = self.suf_mu/self.suf_num_docs
-        self.sigma = self.suf_sigma + torch.matmul(self.mu, torch.t(self.mu))
+
+        #MLE for multivariate gaussian
+        #mu = average of columns of beta
+        temp = torch.zeros(self.num_topics)
+
+        for i in range(self.vocab_size):
+            temp = temp + self.beta[:,i]
+
+        # print(temp)
+        self.mu = temp/self.vocab_size
+        # print(self.mu)
+
+        #sigma = average of sum of (beta(i) - mu)(beta(i) - mu)^T for all i in range num_topics
+        temp = torch.zeros(self.num_topics, self.num_topics)
+        for i in range(self.vocab_size):
+            temp = temp + torch.matmul((self.beta[:,i] - self.mu).reshape(self.num_topics,1), (self.beta[:,i] - self.mu).reshape(1,-1))
+
+        self.sigma = temp/self.vocab_size
         self.sigma_inv = torch.inverse(self.sigma)
 
 
@@ -223,12 +243,12 @@ class CTM():
     def update_suf(self, doc):
 
         self.suf_num_docs += 1
-        self.suf_mu += self.lamda
+        self.suf_mu = self.suf_mu + self.lamda
         for n,c in enumerate(doc):
             for i in range(self.num_topics):                   
-                self.suf_beta[i,n] += c * self.phi[n,i]
+                self.suf_beta[i,n] = self.suf_beta[i,n] + c * self.phi[n,i]
         
-        self.suf_sigma += torch.diag(self.nusqrd) + torch.matmul(self.lamda, torch.t(self.lamda))
+        self.suf_sigma = self.suf_sigma + torch.diag(self.nusqrd) + torch.matmul(self.lamda, torch.t(self.lamda))
 
     #Maximize log bound wrt to zeta, this can be done with a closed form equation
     #Equation (14) of original paper
@@ -240,14 +260,14 @@ class CTM():
     #Comes from (15) of doc though honestly I'm not 100% on 
     #           the derivation of this, I referenced gensim for this
     def max_phi(self, beta, doc):
-
-        for n,c in enumerate(doc):
-            phi_norm = 0
-            for i in range(self.num_topics):
-                phi_norm = sum([torch.exp(self.lamda[i]) * beta[i,n]])
-       
-            for i in range(self.num_topics):
-                self.phi[n,i] = torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm
+        with torch.no_grad():
+            for n,c in enumerate(doc):
+                phi_norm = 0
+                for i in range(self.num_topics):
+                    phi_norm = sum([torch.exp(self.lamda[i]) * beta[i,n]])
+        
+                for i in range(self.num_topics):
+                    self.phi[n,i] = torch.exp(self.lamda[i]) * self.beta[i,n]/phi_norm
 
 
     
@@ -256,18 +276,18 @@ class CTM():
     #sadly this can not be done analytically like that last 2
     #So I use adam to optimize. This is not how the original paper said
     #They used conjugate gradient descent, though I dont think that is an issue
-    def max_lamda(self, lamda, phi, doc):
+    def max_lamda(self, lamda, doc):
         
-        def target(doc,lamda,phi):
-            return self.log_bound(doc, lamda=lamda, phi=phi)
+        def target(doc,lamda):
+            return self.log_bound(doc, lamda=lamda)
 
 
-        opt = torch.optim.Adam([doc,lamda],maximize=True)#,differentiable=True)
+        opt = torch.optim.Adam([lamda],maximize=True)#,differentiable=True)
         
 
         for i in range(10):
             opt.zero_grad()
-            loss = target(doc, lamda, phi)
+            loss = target(doc, lamda)
             # loss.backward()
             opt.step()
 
@@ -284,7 +304,7 @@ class CTM():
         # def deriv(lamda):
             
 
-        opt = torch.optim.Adam([doc, nusqrd],maximize=True)#,differentiable=True)
+        opt = torch.optim.Adam([nusqrd],maximize=True)#,differentiable=True)
         
 
         for i in range(10):
@@ -302,6 +322,7 @@ class CTM():
 #num_topic is the number of topics to find
 def runModel(data, num_doc, num_topics):
 
+
     print("Num topics", num_topics)
     documents = data.head(num_doc).content
     target_labels = data.head(num_doc).target
@@ -314,12 +335,13 @@ def runModel(data, num_doc, num_topics):
     lr = 0.001
 
     # Create dataloader
-    train_loader, vocab_size = create_dataloader(documents, batch_size)
+    train_loader, vocab_size, vocab = create_dataloader(documents, batch_size)
 
-
+    print(vocab)
     torch.set_printoptions(threshold=20000) #lets us print larger tensors to terminal for debugging
 
 
+    torch.autograd.set_detect_anomaly(True)
     model = CTM(num_topics, vocab_size)
     
     
@@ -327,26 +349,34 @@ def runModel(data, num_doc, num_topics):
         print("Training batch: ", i)
         model.train(batch,stop=i)
 
+
+    topics = []
+    for i in range(num_topics):
+        # print(torch.topk(model.beta[i]))
+        print("Topic ",i,":",vocab[torch.topk(model.beta[i],5).indices])
+        topics.append(vocab[torch.argmax(model.beta[i])])
+
+
+
     corrCoef = torch.corrcoef(model.beta)
-    sns.heatmap(corrCoef, annot=True)
+    sns.heatmap(corrCoef, annot=True, xticklabels=topics, yticklabels=topics)
     plt.show(block=False)
 
 
 
 if __name__ == "__main__":
     # Load the dataset
-
     news_data = pd.read_csv("newsgroups_data.csv")
     print("Shape of dataset:", news_data.shape)
 
     news_data = news_data.drop(columns=["Unnamed: 0"])
 
 
-    # runModel(news_data, 10, 10)
+    runModel(news_data, 32, 5)
     # runModel(news_data, 20, 10)
     # runModel(news_data, 20, 20)
     
-    runModel(news_data, 64, 20)
+    # runModel(news_data, 32, 10)
 
     plt.show()
 
