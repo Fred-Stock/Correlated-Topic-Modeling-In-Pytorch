@@ -136,7 +136,7 @@ def pre_processing(documents: List[str], model_type: str) -> List[List[str]]:
         vectorizer = CountVectorizer(
             analyzer="word",  # tokenizes the documents
             min_df=3,  # minimum number of documents a token must appear in
-            token_pattern="[a-zA-Z0-9]{3,}",  # num chars > 3
+            token_pattern="[a-zA-Z0-9]{4,}",  # num chars > 4
             max_features=20000,  # max number of unique words
         )
 
@@ -146,7 +146,7 @@ def pre_processing(documents: List[str], model_type: str) -> List[List[str]]:
 
         vocab_size = X.shape[1]
 
-        return X.toarray(), vocab_size
+        return X.toarray(), vocab_size, vectorizer.get_feature_names_out()
     
     elif model_type == 'lda':
         
