@@ -9,8 +9,8 @@ library(corrplot)
 data <- read.csv("./newsgroups_data.csv")
 docs <- as.character(data$content)
 
-# Select only the first 20 documents
-docs <- docs[1:20]
+# Select only the first 32 documents
+docs <- docs[1:32]
 
 # Data Preprocessing
 corpus <- Corpus(VectorSource(docs))
