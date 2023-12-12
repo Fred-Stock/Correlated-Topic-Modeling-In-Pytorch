@@ -19,3 +19,9 @@ Members:
 3. Nuno Mestre
 4. Flore Kenne
 5. Shafaat Osmani
+
+Running Our Code:
+ctm_model.py - This is our implementation of a correlated topic model. The main function is at the bottom of
+the file. The function RunModel() takes three parameters: the set of documents to analyze (in a csv), the the number of items from that set to use, and the number of topics to find in the corpus. Simply set the parameters as you wish and then run the Python file. 
+
+In ./Other Model Implementations you will find code that will run a pre-existing CTM implementation. There are two files, one for topic-models an R library, and tomotopy, a cpp library with a python front end. Both of these files can be run as they are without modification, or the parameters in the CTM() and RunModel() functions, respectively, can be modified to run on different parameters. 
