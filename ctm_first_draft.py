@@ -94,8 +94,8 @@ class CTM():
 
 
         #equation 8
-        bound = bound + .5 * torch.log(torch.slogdet(self.sigma_inv).logabsdet)
-        if (torch.log(torch.slogdet(self.sigma_inv).logabsdet)).isnan():
+        bound = bound + .5 * torch.log(torch.det(self.sigma_inv))
+        if (torch.log(torch.det(self.sigma_inv))).isnan():
             print("1")
             print(torch.slogdet(self.sigma_inv))
             print(self.sigma_inv)
@@ -141,7 +141,6 @@ class CTM():
     #this computes the log bound for an entire corpus 
     def corpus_bound(self, corpus):
         res = sum([self.log_bound(doc) for doc in corpus])
-        print(res)
         return res
 
     #Training loop, runs until the log probability changes by at most TOL_EM
@@ -157,15 +156,14 @@ class CTM():
         for i in range(MAX_ITERATIONS):
             print("training loop ",i)
             old_bound = self.corpus_bound(corpus)
-            print(old_bound)
             self.e_phase()
             self.m_phase()
 
 
             delta = (self.corpus_bound(self.corpus) - old_bound)/old_bound
 
-            print("delta",delta)
-            print("non-normalized delta", (delta*old_bound))
+            # print("delta",delta)
+            # print("non-normalized delta", (delta*old_bound))
 
             #max just to make sure delta is positive, could use abs
             if max(-delta,delta) < TOL_EM:
@@ -181,8 +179,8 @@ class CTM():
         self.clear_suf_stats()
 
         for i,doc in enumerate(self.corpus):
-            if(i%4 == 0):
-                print("Starting doc: ", i)
+            # if(i%4 == 0):
+                # print("Starting doc: ", i)
 
             #There are 4 parameters to maximize 
             self.zeta = self.max_zeta(self.lamda, self.nusqrd) 
