@@ -21,7 +21,7 @@ corpus <- tm_map(corpus, stripWhitespace)
 dtm <- DocumentTermMatrix(corpus)
 
 # Fit the Correlated Topic Model (CTM)
-num_topics <- 5  # Number of topics set to 10
+num_topics <- 5  # Number of topics set to 5
 ctm_model <- CTM(dtm, k = num_topics, method = "CTM")
 
 # Extracting the topic-term matrix
